@@ -13,17 +13,12 @@ import org.jboss.netty.handler.codec.http.HttpResponseStatus._
 import org.jboss.netty.handler.codec.http.HttpVersion.HTTP_1_1
 import org.jboss.netty.util.CharsetUtil
 
-import scala.actors._
-import scala.actors.Actor._
-
-case class WsFrame(ctx: ChannelHandlerContext, frame: WebSocketFrame)
-
 class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
   val WEBSOCKET_PATH = "/uppercase"
   
-  val WEBSOCKET = "websocket"
-  val CONNECTION = "Connection"
-  
+  /**
+   * メッセージ受信時
+   */
   @throws(classOf[Exception])
   override def messageReceived(ctx: ChannelHandlerContext, e: MessageEvent) {
     val msg:Object = e.getMessage()
@@ -36,9 +31,14 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
         }
     }
   }
-  
+  /**
+   * HTTPリクエストの処理
+   */
   @throws(classOf[Exception])
   def handleHttpRequest(ctx: ChannelHandlerContext, req: HttpRequest) {
+    // GETリクエスト以外は処理しない
+    // "/"にきたらWebSocketクライアント用ページを送信
+    // "/uppercase"にきたらリクエスト文字列を大文字に変換して返す
     if (req.getMethod() != GET) {
       sendHttpResponse(
         ctx, 
@@ -57,14 +57,14 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
       sendHttpResponse(ctx, req, res)
       
     } else if (req.getUri().equalsIgnoreCase(WEBSOCKET_PATH) &&
-               Values.UPGRADE.equalsIgnoreCase(req.getHeader(CONNECTION)) &&
-               WEBSOCKET.equalsIgnoreCase(req.getHeader(Names.UPGRADE))) {
-      // for websocket
+               Values.UPGRADE.equalsIgnoreCase(req.getHeader(Names.CONNECTION)) &&
+               Values.WEBSOCKET.equalsIgnoreCase(req.getHeader(Names.UPGRADE))) {
+      // WebSocketリクエスト時の処理
       val res = new DefaultHttpResponse(
         HTTP_1_1,
         new HttpResponseStatus(101, "Web Socket Protocol Handshake"))
-      res.addHeader(Names.UPGRADE, WEBSOCKET)
-      res.addHeader(CONNECTION, Values.UPGRADE)
+      res.addHeader(Names.UPGRADE, Values.WEBSOCKET)
+      res.addHeader(Names.CONNECTION, Values.UPGRADE)
       
       if (req.containsHeader(Names.SEC_WEBSOCKET_KEY1) &&
           req.containsHeader(Names.SEC_WEBSOCKET_KEY2)) {
@@ -102,7 +102,7 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
           res.addHeader(Names.WEBSOCKET_PROTOCOL, protocol)
       }
       
-      // upgrade the connection and send the handshake response
+      // ハンドラをHTTPからWebSocketに切り替え
       val p = ctx.getChannel().getPipeline()
       p.remove("aggregator")
       p.replace("decoder", "wsdecoder", new WebSocketFrameDecoder())
@@ -115,29 +115,19 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
         ctx, req, new DefaultHttpResponse(HTTP_1_1, FORBIDDEN))
     }
   }
-  
+  /**
+   * WebSocketリクエストの処理
+   */
   @throws(classOf[Exception])
   def handleWebSocketFrame(ctx: ChannelHandlerContext, frame: WebSocketFrame) {
-    object WebsocketActor extends Actor {
-      def act() = {
-        loop {
-          react {
-            case wf: WsFrame => {
-              println("react: " + Thread.currentThread().getName())
-              reply(wf.frame.getTextData().toUpperCase)
-            }
-            case x => println("ERROR: " + x)
-          }
-        }
-      }
-    }
-    
-    // send the uppercased string back
-    WebsocketActor.start()
-    val res = WebsocketActor !? WsFrame(ctx, frame)
-    ctx.getChannel().write(new DefaultWebSocketFrame(res.toString))
+    // 大文字に変換するして、WebSocketFrameにのせてレスポンスを返す。
+    ctx.getChannel().write(
+      new DefaultWebSocketFrame(
+        frame.getTextData().toUpperCase))
   }
-  
+  /**
+   * HTTPレスポンスの送信
+   */
   @throws(classOf[Exception])
   def sendHttpResponse(ctx: ChannelHandlerContext, req: HttpRequest, res: HttpResponse) {
     // generate an error page if response status is no OK(200)
@@ -154,7 +144,9 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
       f.addListener(ChannelFutureListener.CLOSE)
     }
   }
-
+  /**
+   * 例外発生時の処理
+   */
   @throws(classOf[Exception])
   override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) {
     // @todo
@@ -162,9 +154,11 @@ class WebSocketServerHandler extends SimpleChannelUpstreamHandler {
     e.getCause().printStackTrace()
     e.getChannel().close()
   }
-
+  /**
+   * WebSocket接続情報
+   */
   def getWebSocketLocation(req: HttpRequest) = 
     "ws://" + req.getHeader(HttpHeaders.Names.HOST) + WEBSOCKET_PATH
-  
 }
+  
 

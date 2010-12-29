@@ -21,19 +21,21 @@ import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory
 object EchoServer {
   @throws(classOf[Exception])
   def main(args:Array[String]) {
-		// configure the server
+    // サーバーのセットアップ
     val bootstrap = new ServerBootstrap(
       new NioServerSocketChannelFactory(
-        Executors.newCachedThreadPool(),
-        Executors.newCachedThreadPool()))
+        Executors.newCachedThreadPool(), // bossExecutor
+        Executors.newCachedThreadPool()  // workerExecutor
+      ))
     
-		// Set up the pipeline factory
-    bootstrap.setPipelineFactory(new ChannelPipelineFactory() {
-      def getPipeline():ChannelPipeline = 
-        Channels.pipeline(new EchoServerHandler())
-    })
+    bootstrap.setPipelineFactory(
+      // リクエストをそのまま返すハンドラを実装して登録
+      new ChannelPipelineFactory() {
+        def getPipeline() = Channels.pipeline(new EchoServerHandler())
+      }
+    )
     
-    // Bind and start to accept incoming connections.
+    // 8080番で待ち受け開始
     bootstrap.bind(new InetSocketAddress(8080))
   }
 }
@@ -42,17 +44,26 @@ class EchoServerHandler extends SimpleChannelUpstreamHandler {
   val logger = java.util.logging.Logger.getLogger("EchoServerHandler")
   val transferredBytes = new AtomicLong()
   
+  /*
+  // そのまま受け取る
   def getTransferredBytes() = transferredBytes.get()
-	
+  */
+  // そのまま返す
   override def messageReceived(ctx:ChannelHandlerContext, e:MessageEvent) {
-    transferredBytes.addAndGet( (e.getMessage()).asInstanceOf[ChannelBuffer].readableBytes() )
+    transferredBytes.addAndGet(
+      e.getMessage().asInstanceOf[ChannelBuffer].readableBytes())
+    
     println("echo_server: message received: " + e.getMessage())
+    // レスポンスを返す
     e.getChannel().write(e.getMessage())
   }
-
-	override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) {
-		// Close the connection when an exception is raised.
-		logger.log(Level.WARNING, "Unexpected exception from downstream.", e.getCause())
-		e.getChannel().close()
-	}
+  
+  // 例外発生時はここにくる
+  override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) {
+    logger.log(Level.WARNING, 
+               "Unexpected exception from downstream.",
+               e.getCause())
+    
+    e.getChannel().close()
+  }
 }
