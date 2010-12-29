@@ -16,7 +16,7 @@ object WebSocketServer {
     
     bootstrap.setPipelineFactory(new WebSocketServerPipelineFactory())
     
-    bootstrap.bind(new InetSocketAddress("192.168.1.16", 8080))
+    bootstrap.bind(new InetSocketAddress("localhost", 8080))
   }
 }
 
